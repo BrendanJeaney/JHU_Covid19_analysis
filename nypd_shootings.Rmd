@@ -1,0 +1,326 @@
+---
+title: "NYPD Shootings"
+output: html_document
+date: "2024-04-08"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(sf)
+```
+
+
+```{r, message=FALSE}
+  
+  url <- "https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+  
+  nypd_data_full <- read_csv(url)
+  
+  nypd_data <- nypd_data_full %>% select(-c(LOC_OF_OCCUR_DESC, LOC_CLASSFCTN_DESC, LOCATION_DESC, X_COORD_CD, Y_COORD_CD, Latitude, Longitude, Lon_Lat)) %>% mutate(OCCUR_DATE = mdy(OCCUR_DATE))
+  
+  nypd_shootings_dates <- nypd_data %>%
+                          group_by(OCCUR_DATE) %>%
+                          mutate(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+                          select(OCCUR_DATE, occurences, murders)
+  
+  
+  # creates shootings yearly df
+  nypd_shootings_yearly <- nypd_shootings_dates %>% 
+    mutate(year = year(OCCUR_DATE)) %>% 
+    group_by(year) %>%
+    summarize(occurences = sum(occurences), murders = sum(murders)) %>%
+    select(year, occurences, murders)
+  
+  # creates plot for shooting occurences and murders year-over-year
+  nypd_shootings_yearly %>% ggplot(aes(x = year, y = occurences)) +
+    geom_line(aes(color="occurences")) + 
+    geom_line(aes(y=murders, color="murders")) +
+    theme(legend.position="bottom", axis.text.x=element_text(angle=90)) + 
+    labs(title = "NYPD Shooting Occurences and murders by year", y = NULL)
+  
+  # creates shooting occurences and murders by year and boro
+  nypd_shootings_yearly_by_boro <- nypd_data %>% 
+    mutate(year = year(OCCUR_DATE), boro = BORO) %>% 
+    group_by(year, boro) %>%
+    summarize(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+    select(year, boro, occurences, murders)
+  
+  # creates a separate df for each boro's year-to-year shooting occurences and murders
+  bronx_yearly = nypd_shootings_yearly_by_boro[which(nypd_shootings_yearly_by_boro$boro == "BRONX"), ]
+  brooklyn_yearly = nypd_shootings_yearly_by_boro[which(nypd_shootings_yearly_by_boro$boro == "BROOKLYN"), ]
+  manhattan_yearly = nypd_shootings_yearly_by_boro[which(nypd_shootings_yearly_by_boro$boro == "MANHATTAN"), ]
+  queens_yearly = nypd_shootings_yearly_by_boro[which(nypd_shootings_yearly_by_boro$boro == "QUEENS"), ]
+  si_yearly = nypd_shootings_yearly_by_boro[which(nypd_shootings_yearly_by_boro$boro == "STATEN ISLAND"), ]
+  
+  
+  # creates plot for shooting occurences year-over-year by boro
+  ggplot() +
+  geom_line(data = bronx_yearly, aes(x = year, y = occurences, color="bronx")) + 
+  geom_line(data = brooklyn_yearly, aes(x = year, y = occurences, color="brooklyn")) +
+  geom_line(data = manhattan_yearly, aes(x = year, y = occurences, color="manhattan")) +
+  geom_line(data = queens_yearly, aes(x = year, y = occurences, color="queens")) +
+  geom_line(data = si_yearly, aes(x = year, y = occurences, color="staten island")) +
+  theme(legend.position="bottom", axis.text.x=element_text(angle=90)) + 
+  labs(title = "NYPD Shooting Occurences Year-over-Year by Boro", y = NULL)
+    
+    
+  # creates plot for murders year-over-year by boro
+  ggplot() +
+  geom_line(data = bronx_yearly, aes(x = year, y = murders, color="bronx")) + 
+  geom_line(data = brooklyn_yearly, aes(x = year, y = murders, color="brooklyn")) +
+  geom_line(data = manhattan_yearly, aes(x = year, y = murders, color="manhattan")) +
+  geom_line(data = queens_yearly, aes(x = year, y = murders, color="queens")) +
+  geom_line(data = si_yearly, aes(x = year, y = murders, color="staten island")) +
+  theme(legend.position="bottom", axis.text.x=element_text(angle=90)) + 
+  labs(title = "NYPD Shooting Murders Year-over-Year by Boro", y = NULL)
+  
+  
+  # creates a df for shootings year-over-year by boro (copy of a couple lines above?)
+  nypd_shootings_yearly_by_boro <- nypd_data %>% 
+    mutate(year = year(OCCUR_DATE), boro = BORO) %>% 
+    group_by(year, boro) %>%
+    summarize(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+    select(year, boro, occurences, murders)
+  
+```
+
+### Shooting Occurences and Murders Year-Over-Year by Boro Analysis
+From the plots above, it appears that the Bronx and Brooklyn see the largest amount of shooting incidents as well as murders. The next tier down is Queens and Manhattan, and then Staten Island consistently sees the least amount of shooting occurences. The number of incidents generally declined throughout the 2010s and then spiked at the turn of the decade. It has since come down since the spike in 2020 but is still at a higher rate than back in 2015 in almost all cases.
+
+
+
+<br/><br/><br/>
+```{r, message=FALSE}
+  
+  # finding 
+  age_match <- length(which(nypd_data$VIC_AGE_GROUP == nypd_data$PERP_AGE_GROUP & !(nypd_data$VIC_AGE_GROUP == "UNKNOWN" | nypd_data$PERP_AGE_GROUP == "UNKNOWN" | nypd_data$VIC_AGE_GROUP == "1022" | nypd_data$PERP_AGE_GROUP == "1022")))
+  age_no_match <- length(which(nypd_data$VIC_AGE_GROUP != nypd_data$PERP_AGE_GROUP & !(nypd_data$VIC_AGE_GROUP == "UNKNOWN" | nypd_data$PERP_AGE_GROUP == "UNKNOWN" | nypd_data$VIC_AGE_GROUP == "1022" | nypd_data$PERP_AGE_GROUP == "1022")))
+  # unique(nypd_data$VIC_AGE_GROUP)
+  
+  # creates df with % of shooting occurrences where victim and perp are the same age group
+  # vs different age groups
+  age_match_percent = age_match/(age_match + age_no_match)
+  age_no_match_percent = age_no_match/(age_match + age_no_match)
+  age_percent_df <- data.frame(
+                    group = c("same age group", "different age groups"),
+                    value = c(age_match_percent, age_no_match_percent))
+  
+  # pie chart of occurences where victim and perp are in the same age group vs different age groups
+  ggplot(age_percent_df, aes(x="", y=value, fill=group)) +
+  geom_bar(stat="identity", width=1) +
+  coord_polar("y", start=0) +
+  labs(title = "Shooting Occurrences between same age group vs different age groups*^", y = NULL)
+  
+  # message displaying the percentage breakdowns of the pie chart
+  cat("^ different age groups: ", (round(age_no_match_percent,4)*100), "% \n same age group: ", (round(age_match_percent,4)*100), "%")
+  
+  
+```
+
+### Shooting Occurences between Age Group
+The pie chart shows that almost as many shootings are perpetrated by someone of the same age group as the victim as victims of a different age group. 
+
+
+
+<br/><br/><br/>
+```{r, message=FALSE}
+
+  # for age factor conversion
+  age_dict = setNames(seq(1,5), c("<18","18-24","25-44","45-64","65+"))
+  amount_18u = length(which(nypd_data$PERP_AGE_GROUP == "<18"))
+  amount_18_to_24 = length(which(nypd_data$PERP_AGE_GROUP == "18-24"))
+  amount_25_to_44 = length(which(nypd_data$PERP_AGE_GROUP == "25-44"))
+  amount_45_to_64 = length(which(nypd_data$PERP_AGE_GROUP == "45-64"))
+  amount_65p = length(which(nypd_data$PERP_AGE_GROUP == "65+"))
+  
+  # dataframe with perp age group, occurences, and murders
+  perp_age_df <- nypd_data %>% 
+    mutate(boro = BORO) %>% 
+    group_by(PERP_AGE_GROUP) %>%
+    summarize(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+    select(PERP_AGE_GROUP, occurences, murders) %>%
+    filter(PERP_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+"))
+  
+  # plots bar chart of perp age group vs occurences
+  perp_age_df %>% ggplot(aes(x=PERP_AGE_GROUP, y=occurences)) +
+    geom_bar(stat="identity") +
+    labs(title = "NYPD Shooting Occurences by Perp Age Group*", y = NULL)
+  
+  
+  # similar to perp_age_group, but includes vic age group instead of perp
+  vic_age_df <- nypd_data %>% 
+    filter(PERP_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+")) %>%
+    filter(VIC_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+")) %>%
+    mutate(boro = BORO) %>% 
+    group_by(VIC_AGE_GROUP) %>%
+    summarize(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+    select(VIC_AGE_GROUP, occurences, murders)
+  
+  vic_age_df %>% ggplot(aes(x=VIC_AGE_GROUP, y=occurences)) +
+    geom_bar(stat="identity") +
+    labs(title = "NYPD Shooting Occurences by Victim Age Group*", y = NULL)
+
+```
+
+### Shooting Occurences by Perpetrator Age Group
+This chart shows that the vast majority of shooting incidents [where the perp and victims' ages are reported] are perpetrated by individuals from the ages of 18-44. This makes sense this is the majority of active adults, and also the largest population by far. 
+
+
+
+<br/><br/><br/>
+```{r, message=FALSE}
+  
+  # dataframe similar to perp_age_df, but adds column combining perp age group and vic age group into a concatenated string of form P:[Perp_age_group], V:[Vic_age_group]
+  perp_vic_age_df <- nypd_data %>% 
+    filter(PERP_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+")) %>%
+    filter(VIC_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+")) %>%
+    mutate(boro = BORO, perp_vic_ages = str_c("P:",PERP_AGE_GROUP, ", V:", VIC_AGE_GROUP)) %>%
+    group_by(perp_vic_ages) %>%
+    summarize(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+    select(perp_vic_ages, occurences, murders)
+  
+  # plots how many shootings there are for each perp age group on each vic age group
+  perp_vic_age_df %>% ggplot(aes(x=perp_vic_ages, y=occurences)) +
+    geom_bar(stat="identity") +
+    theme(legend.position="bottom", axis.text.x=element_text(angle=90)) +
+    labs(title = "NYPD Shooting Occurences by Perp and Victime Age Groups*", y = NULL)
+  
+  
+  # similar to perp_age_group, but includes vic age group instead of perp
+  vic_age_df <- nypd_data %>% 
+    filter(PERP_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+")) %>%
+    filter(VIC_AGE_GROUP %in% c("<18","18-24","25-44","45-64","65+")) %>%
+    mutate(boro = BORO) %>% 
+    group_by(VIC_AGE_GROUP) %>%
+    summarize(occurences = n(), murders = sum(STATISTICAL_MURDER_FLAG)) %>%
+    select(VIC_AGE_GROUP, occurences, murders)
+  
+  # adds age_group column to vic_age_df so it can join with perp_age_df on age group
+  vic_age_df_join <- vic_age_df %>%
+    mutate(vic_occurences = occurences, vic_murders = murders, age_group = VIC_AGE_GROUP) %>%
+    select(age_group, vic_occurences, vic_murders)
+
+  # adds age_group column to perp_age_df so it can join with vic_age_df on age group
+  perp_age_df_join <- perp_age_df %>%
+    mutate(perp_occurences = occurences, perp_murders = murders, age_group = PERP_AGE_GROUP) %>%
+    select(age_group, perp_occurences, perp_murders)
+  
+  # gets sum of occurenes where age is known for botht the perp and victim
+  occs_sum = sum(perp_age_df$occurences)
+  # same as above but for murders 
+  mur_sum = sum(perp_age_df$murders)
+  
+  # joins the perp_age_df and vic_age_df on age group (matches perp age group to vic age group, but both listed as age_group)
+  # creates columns laying out how often each age group is the perp, how often they are the victim and what ratio they are the perp to victim and the other way around, what percent of perps they make up, what percent of victims the make up, and so on ... 
+  perp_vic_age_ratios_df <- perp_age_df_join %>%
+    full_join(vic_age_df_join) %>%
+    mutate(perp_to_vic_occs = str_c("1:", round(perp_occurences/vic_occurences,2)), perp_occ_percent = round(perp_occurences/occs_sum,3), vic_occ_percent = round(vic_occurences/occs_sum,3),perp_to_vic_murds = str_c("1:", round(perp_murders/vic_murders,2)), perp_murd_percent = round(perp_murders/mur_sum,2), vic_murd_percent = round(vic_murders/mur_sum,3), perp_over_vic_occs = round(perp_occurences/vic_occurences,2), perp_over_vic_murds = round(perp_murders/vic_murders,2)) %>%
+    select(-c(perp_occurences:vic_murders))
+  
+  
+  # shooting occurences month-to-month dataframe, similar to yearly nypd_shootings_yearly but groups by month instead of year
+  nypd_shootings_monthly <- nypd_shootings_dates %>% 
+    mutate(month = month(OCCUR_DATE)) %>% 
+    group_by(month) %>%
+    summarize(occurences = sum(occurences), murders = sum(murders)) %>%
+    select(month, occurences)
+  
+  # function for creating x tick marks
+  number_ticks <- function(n) {function(limits) pretty(limits, n)}
+  
+  # plots shooting incidents by month
+  ggplot(nypd_shootings_monthly, aes(x = month, y=occurences)) +
+    geom_bar(stat="identity") +
+    theme(legend.position="bottom") + 
+    scale_x_continuous(breaks=number_ticks(10)) +
+    labs(title = "NYPD Shooting Occurences by Month", y = NULL) 
+  
+  # shifts the monthly df so as to show a parabolic relationship, makes June 1, July 2, ..., May 12
+  nypd_shootings_monthly_shifted <- nypd_shootings_monthly %>%
+        mutate(month = ((month+ 5)%%12)+1)
+  
+  # plots the month shifted data
+  ggplot(nypd_shootings_monthly_shifted, aes(x = month, y=occurences)) +
+    geom_bar(stat="identity") +
+    theme(legend.position="bottom") + 
+    scale_x_continuous(breaks=number_ticks(10)) +
+    labs(title = "NYPD Shooting Occurences by Month Shifted by 7 months", y = NULL) + 
+    geom_smooth(se=FALSE, method = lm, formula = y ~ poly(x, 2, raw = TRUE))
+  
+```
+
+### Shooting Occurences by Month
+The chart where the months aren't shifted shows that there is a strong relationship between weather and shootings. The shootings peak in the middle of summer, June and slowly declines until February where it bottoms out. They then climb again as winter turns into spring. It makes sense, people are outside and more active in the warmer months, so there are more oppotunities for shooting incidents to occur.
+
+
+
+<br/><br/><br/>
+```{r, message=FALSE}
+  
+  # adds age_factor column to perp_age_df, essentially ordering the age groups in numerical order
+  factor_perp_df <- perp_age_df %>%
+        mutate(age_factor = age_dict[PERP_AGE_GROUP])
+  
+  # creates cubic regression on the age group data between age and occurences
+  mod <- lm(age_factor ~ poly(occurences, 3, raw = TRUE), data = factor_perp_df)
+  
+  # add predictions to a dataframe
+  factor_perp_df_w_pred <- factor_perp_df %>% mutate(pred = predict(mod))
+  
+  
+  # plots the age group and occurences regression
+  factor_perp_df_w_pred %>% ggplot(aes(age_factor, occurences) ) + geom_point() + 
+  stat_smooth(method = lm, formula = y ~ poly(x, 3, raw = TRUE), level=0.55)
+  
+  cat("*for shootings where the ages of both the victim and perpetrator were known and reported")
+  
+```
+
+### Age Group and Occurence rates Analysis
+
+Obviously there aren't enough age groups to really show any polynomial relationship between age groups and occurence rates, but it's a neat visual and roughly fits a polynomial regression.
+
+
+<br/><br/><br/>
+
+
+``` {r, message=FALSE}
+
+nypd_locs = nypd_data_full %>% 
+      select(Latitude, Longitude, BORO)
+
+nypd_locs <- na.omit(nypd_locs)
+  
+
+my_sf <- st_as_sf(nypd_locs, coords = c('Longitude', 'Latitude'))
+
+# boro_dict = setNames(c("green", "red", "orange", "yellow", "purple"), c("MANHATTAN","BRONX","QUEENS","BROOKLYN","STATEN ISLAND"))
+# boro_dict["MANHATTAN"]
+# my_sf
+
+ggplot(my_sf) + 
+  geom_sf() +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), axis.title.x=element_blank(), axis.text.x=element_blank(), axis.ticks.x=element_blank(),axis.title.y=element_blank(), axis.text.y=element_blank(), axis.ticks.y=element_blank())
+
+```
+
+### Dot Map Without overlay
+The dots represent shooting occurences in New York City. It is somewhat hard to tell much from this graph since there isn't a map of nyc underneath the dots (all of the map libraries I found required payment).
+
+
+<br/><br/><br/>
+
+
+
+
+## Sources of Bias
+
+* Per the NYC OpenData, Only valid shooting incidents resulting in an injured victim are included in this release. Shooting incidents not resulting in an injured victim are classified according to the appropriate offense according to NYS Penal Law 
+
+* All of my analysis on age group related data was done with data where the age group of both the perpetrator and victim where known. I didn't do any analysis on shootings where the victim age was known and that might change the analysis.
+
+* I don't think there was much room for personal bias in this analysis. My way of trying to mitigate personal bias was to just just present aggregated data without trying to influence the viewer's interpretation.
+
+
+<br/><br/><br/>
